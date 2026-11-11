@@ -1,0 +1,15 @@
+{
+    "id": "timeTrackingOnline",
+    "name": "TimeTracking Online",
+    "description": "Your working time from TimeTracking Online (timetracking-online.com) in the bar: today's progress, overtime, this week, vacation, upcoming absences, and clock in/out, break and leave bookings. Unofficial.",
+    "version": "1.0.0",
+    "author": "Toonvish",
+    "type": "widget",
+    "capabilities": ["dankbar-widget"],
+    "component": "./TimeTrackingWidget.qml",
+    "settings": "./TimeTrackingSettings.qml",
+    "icon": "schedule",
+    "requires_dms": ">=1.7.0",
+    "requires": ["libsecret"],
+    "permissions": ["settings_read", "settings_write", "network", "process"]
+}
