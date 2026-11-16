@@ -76,6 +76,8 @@ Item {
         _password = "";
         _auth = null;
         _authLoaded = false;
+        if (_authBusy)
+            _authDone("Settings changed");
         fastLoaded = false;
         slowLoaded = false;
     }
@@ -89,11 +91,42 @@ Item {
         return apiUrl.trim().replace(/\/+$/, "") + "/" + path;
     }
 
-    // Raw request; cb(status, json). status 0 = network failure.
+    // QML's XMLHttpRequest has no timeout: a request caught in a network
+    // change (dock unplugged, Wi-Fi reconnect) can stay pending forever. Every
+    // request is aborted after this long and reported as a network failure.
+    readonly property int requestTimeoutMs: 15000
+
+    Component {
+        id: requestTimerComponent
+        Timer {
+            repeat: false
+        }
+    }
+
+    // Raw request; cb(status, json). status 0 = network failure or timeout.
+    // cb is called exactly once.
     function _xhr(method, path, body, token, cb) {
         const x = new XMLHttpRequest();
+        let settled = false;
+        const timer = requestTimerComponent.createObject(client, {
+            "interval": requestTimeoutMs
+        });
+        const settle = (status, data) => {
+            if (settled)
+                return;
+            settled = true;
+            timer.stop();
+            timer.destroy();
+            cb(status, data);
+        };
+        timer.triggered.connect(() => {
+            if (settled)
+                return;
+            settle(0, null);
+            x.abort();
+        });
         x.onreadystatechange = function () {
-            if (x.readyState !== XMLHttpRequest.DONE)
+            if (x.readyState !== XMLHttpRequest.DONE || settled)
                 return;
             let data = null;
             try {
@@ -101,8 +134,9 @@ Item {
             } catch (e) {
                 data = null;
             }
-            cb(x.status, data);
+            settle(x.status, data);
         };
+        timer.start();
         x.open(method, _url(path));
         x.setRequestHeader("Accept", "application/json");
         if (body !== null && body !== undefined)
@@ -134,6 +168,7 @@ Item {
         if (_authBusy)
             return;
         _authBusy = true;
+        authWatchdog.restart();
         if (_auth && _auth.refreshToken)
             _grant({
                 "grant_type": "refresh_token",
@@ -181,10 +216,20 @@ Item {
     }
 
     function _authDone(err) {
+        authWatchdog.stop();
         _authBusy = false;
         const waiters = _authWaiters;
         _authWaiters = [];
         waiters.forEach(w => w(err));
+    }
+
+    // Backstop for the whole login chain (refresh, keyring, password grant —
+    // each bounded on its own). If it still hasn't reported back, release the
+    // waiters instead of blocking every future request behind _authBusy.
+    Timer {
+        id: authWatchdog
+        interval: 3 * client.requestTimeoutMs + 15000
+        onTriggered: client._authDone("Login timed out")
     }
 
     Process {
